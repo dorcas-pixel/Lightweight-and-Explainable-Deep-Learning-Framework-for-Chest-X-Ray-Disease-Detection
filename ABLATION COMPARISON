@@ -1,0 +1,163 @@
+def build_ablation_models(train_ds):
+    """
+    Models isolate the contribution of each predictive component.
+
+    CNN baseline
+    EfficientNet-B0 without transfer
+    EfficientNet-B0 + ImageNet transfer
+    EfficientNet-B0 + transfer + SSL
+    EfficientNet-B0 + transfer + CBAM
+    EfficientNet-B0 + transfer + SSL + CBAM = proposed classifier
+
+    Grad-CAM is applied after training and is not counted as a
+    classification-performance component.
+    """
+    models = {}
+
+    models["CNN_Baseline"] = build_cnn_baseline()
+
+    models["EfficientNet_Scratch"] = build_efficientnet(
+        use_transfer=False,
+        use_cbam=False,
+    )
+
+    models["EfficientNet_Transfer"] = build_efficientnet(
+        use_transfer=True,
+        use_cbam=False,
+    )
+
+    models["EfficientNet_Transfer_CBAM"] = build_efficientnet(
+        use_transfer=True,
+        use_cbam=True,
+    )
+
+    print("\nStarting contrastive SSL pretraining...")
+    ssl_encoder = ssl_pretrain(train_ds, epochs=SSL_EPOCHS)
+
+    models["EfficientNet_Transfer_SSL"] = build_ssl_supervised_model(
+        ssl_encoder,
+        use_cbam=False,
+    )
+
+    models["Proposed_EfficientNet_SSL_CBAM"] = build_ssl_supervised_model(
+        ssl_encoder,
+        use_cbam=True,
+    )
+
+    return models
+
+
+def run_ablation_study(train_ds, val_ds, test_ds):
+    models = build_ablation_models(train_ds)
+
+    all_metric_rows = []
+    all_class_rows = []
+
+    for model_key, model in models.items():
+        model = train_one_model(
+            model,
+            train_ds,
+            val_ds,
+            model_key,
+        )
+
+        y_true, y_prob = collect_predictions(model, test_ds)
+
+        overall_df, class_df = save_evaluation(
+            y_true,
+            y_prob,
+            model_key,
+        )
+
+        all_metric_rows.append(overall_df)
+        all_class_rows.append(class_df)
+
+    comparison = pd.concat(all_metric_rows, ignore_index=True)
+    comparison.to_csv(
+        RESULTS_DIR / "ablation_comparison_95CI_long.csv",
+        index=False,
+    )
+
+    # Publication-style wide table
+    wide = comparison.pivot(
+        index="model",
+        columns="metric",
+        values="estimate",
+    ).reset_index()
+
+    for metric in comparison["metric"].unique():
+        subset = comparison[comparison["metric"] == metric][
+            ["model", "95_CI_low", "95_CI_high"]
+        ].copy()
+
+        subset["ci_text"] = subset.apply(
+            lambda r: f"{r['95_CI_low']:.4f}–{r['95_CI_high']:.4f}",
+            axis=1,
+        )
+
+        wide = wide.merge(
+            subset[["model", "ci_text"]].rename(
+                columns={"ci_text": f"{metric}_95CI"}
+            ),
+            on="model",
+            how="left",
+        )
+
+    wide.to_csv(
+        RESULTS_DIR / "ablation_comparison_95CI_wide.csv",
+        index=False,
+    )
+
+    # Plot macro-F1 and accuracy across ablations
+    plot_metric = comparison[
+        comparison["metric"].isin(
+            ["accuracy", "f1_macro", "auc_macro_ovr"]
+        )
+    ].copy()
+
+    plt.figure(figsize=(12, 7))
+    sns.barplot(
+        data=plot_metric,
+        x="model",
+        y="estimate",
+        hue="metric",
+    )
+    plt.xticks(rotation=35, ha="right")
+    plt.ylabel("Score")
+    plt.xlabel("Model")
+    plt.ylim(0, 1.05)
+    plt.title("Ablation comparison of predictive components")
+    plt.tight_layout()
+    plt.savefig(
+        RESULTS_DIR / "ablation_comparison_metrics.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close()
+
+    # Human-readable manuscript table
+    manuscript_rows = []
+    for _, row in comparison.iterrows():
+        manuscript_rows.append(
+            {
+                "Model": row["model"],
+                "Metric": row["metric"],
+                "Score": f"{row['estimate']:.4f}",
+                "95% CI": (
+                    f"{row['95_CI_low']:.4f}–"
+                    f"{row['95_CI_high']:.4f}"
+                ),
+            }
+        )
+
+    pd.DataFrame(manuscript_rows).to_csv(
+        RESULTS_DIR / "manuscript_ablation_table.csv",
+        index=False,
+    )
+
+    print("\n" + "=" * 90)
+    print("ABLATION STUDY COMPLETED")
+    print("=" * 90)
+    print(wide.to_string(index=False))
+
+    return wide
