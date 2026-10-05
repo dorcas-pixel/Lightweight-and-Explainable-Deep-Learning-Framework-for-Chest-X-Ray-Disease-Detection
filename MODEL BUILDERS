@@ -1,0 +1,68 @@
+def build_cnn_baseline():
+    """Simple CNN baseline without EfficientNet, transfer learning, SSL or CBAM."""
+    inputs = keras.Input(shape=(*IMG_SIZE, 3))
+
+    x = layers.Conv2D(32, 3, padding="same", activation="relu")(inputs)
+    x = layers.MaxPooling2D()(x)
+    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.MaxPooling2D()(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(NUM_CLASSES, activation="softmax")(x)
+
+    model = keras.Model(inputs, outputs, name="CNN_Baseline")
+    compile_model(model)
+    return model
+
+
+def build_efficientnet(use_transfer=True, use_cbam=False, backbone_weights=None):
+    if backbone_weights is None:
+        backbone_weights = "imagenet" if use_transfer else None
+
+    inputs = keras.Input(shape=(*IMG_SIZE, 3), name="input_image")
+
+    backbone = tf.keras.applications.EfficientNetB0(
+        include_top=False,
+        weights=backbone_weights,
+        input_tensor=inputs,
+    )
+
+    # Freeze only for ImageNet transfer learning.
+    backbone.trainable = False if use_transfer else True
+
+    x = backbone.output
+
+    if use_cbam:
+        x = CBAM(name="cbam")(x)
+
+    x = layers.GlobalAveragePooling2D(name="global_average_pooling")(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(
+        NUM_CLASSES, activation="softmax", name="classifier"
+    )(x)
+
+    name_parts = ["EfficientNetB0"]
+    if use_transfer:
+        name_parts.append("Transfer")
+    else:
+        name_parts.append("Scratch")
+    if use_cbam:
+        name_parts.append("CBAM")
+
+    model = keras.Model(
+        inputs, outputs, name="_".join(name_parts)
+    )
+    compile_model(model)
+    return model
+
+
+def compile_model(model):
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+        loss="categorical_crossentropy",
+        metrics=[
+            keras.metrics.CategoricalAccuracy(name="accuracy"),
+        ],
+    )
+
