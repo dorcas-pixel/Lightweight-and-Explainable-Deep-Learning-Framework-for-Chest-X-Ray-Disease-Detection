@@ -1,0 +1,86 @@
+def find_backbone(model):
+    for layer in model.layers:
+        if isinstance(
+            layer,
+            tf.keras.Model,
+        ) and "efficientnet" in layer.name.lower():
+            return layer
+    return None
+
+
+def grad_cam(model, image, class_index=None):
+    """
+    Grad-CAM for the EfficientNet-based models.
+    image must be normalized to [0,1] and have shape (1,224,224,3).
+    """
+    backbone = find_backbone(model)
+    if backbone is None:
+        raise ValueError(
+            "Grad-CAM helper currently expects an EfficientNet-based model."
+        )
+
+    # EfficientNet-B0's final feature tensor is used.
+    grad_model = keras.Model(
+        inputs=model.inputs,
+        outputs=[backbone.output, model.output],
+    )
+
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(image, training=False)
+
+        if class_index is None:
+            class_index = tf.argmax(predictions[0])
+
+        score = predictions[:, class_index]
+
+    grads = tape.gradient(score, conv_outputs)
+
+    weights = tf.reduce_mean(grads, axis=(1, 2))
+    cam = tf.reduce_sum(
+        conv_outputs * weights[:, tf.newaxis, tf.newaxis, :],
+        axis=-1,
+    )
+
+    cam = tf.maximum(cam, 0)
+    cam = cam[0]
+    cam = cam / (tf.reduce_max(cam) + 1e-8)
+
+    return cam.numpy(), int(class_index.numpy())
+
+
+def save_gradcam(model, image_path, output_path):
+    image = tf.keras.utils.load_img(
+        image_path,
+        target_size=IMG_SIZE,
+    )
+    image_array = (
+        tf.keras.utils.img_to_array(image).astype("float32") / 255.0
+    )
+    input_tensor = tf.expand_dims(image_array, 0)
+
+    heatmap, class_idx = grad_cam(
+        model,
+        input_tensor,
+    )
+
+    heatmap = tf.image.resize(
+        heatmap[..., np.newaxis],
+        IMG_SIZE,
+    ).numpy().squeeze()
+
+    plt.figure(figsize=(10, 4))
+
+    plt.subplot(1, 2, 1)
+    plt.imshow(image_array)
+    plt.title("Original X-ray")
+    plt.axis("off")
+
+    plt.subplot(1, 2, 2)
+    plt.imshow(image_array)
+    plt.imshow(heatmap, cmap="jet", alpha=0.45)
+    plt.title(f"Grad-CAM: {CLASSES[class_idx]}")
+    plt.axis("off")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
