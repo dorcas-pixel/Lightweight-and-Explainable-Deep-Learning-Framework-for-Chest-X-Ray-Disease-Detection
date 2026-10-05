@@ -1,0 +1,204 @@
+def calculate_metrics(y_true, y_prob):
+    y_pred = np.argmax(y_prob, axis=1)
+
+    metrics = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision_macro": precision_score(
+            y_true, y_pred, average="macro", zero_division=0
+        ),
+        "recall_macro": recall_score(
+            y_true, y_pred, average="macro", zero_division=0
+        ),
+        "f1_macro": f1_score(
+            y_true, y_pred, average="macro", zero_division=0
+        ),
+    }
+
+    try:
+        y_true_onehot = np.eye(NUM_CLASSES)[y_true]
+        metrics["auc_macro_ovr"] = roc_auc_score(
+            y_true_onehot,
+            y_prob,
+            multi_class="ovr",
+            average="macro",
+        )
+    except ValueError:
+        metrics["auc_macro_ovr"] = np.nan
+
+    return metrics
+
+
+def bootstrap_confidence_intervals(
+    y_true,
+    y_prob,
+    n_bootstrap=BOOTSTRAP_N,
+    seed=SEED,
+):
+    """
+    Non-parametric bootstrap 95% percentile confidence intervals.
+    Resamples test predictions with replacement.
+    """
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+
+    point = calculate_metrics(y_true, y_prob)
+
+    bootstrap_values = {k: [] for k in point}
+
+    for _ in range(n_bootstrap):
+        indices = rng.integers(0, n, size=n)
+
+        bt_true = y_true[indices]
+        bt_prob = y_prob[indices]
+
+        values = calculate_metrics(bt_true, bt_prob)
+
+        for key, value in values.items():
+            if np.isfinite(value):
+                bootstrap_values[key].append(value)
+
+    output = {}
+
+    for key, estimate in point.items():
+        values = np.asarray(bootstrap_values[key], dtype=float)
+
+        if len(values) == 0:
+            low, high = np.nan, np.nan
+        else:
+            low, high = np.percentile(values, [2.5, 97.5])
+
+        output[key] = {
+            "estimate": estimate,
+            "ci_low": low,
+            "ci_high": high,
+        }
+
+    return output
+
+
+def per_class_ci(y_true, y_prob, n_bootstrap=BOOTSTRAP_N, seed=SEED):
+    """95% bootstrap CIs for sensitivity and specificity of each class."""
+    y_pred = np.argmax(y_prob, axis=1)
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+
+    records = []
+
+    for class_idx, cls in enumerate(CLASSES):
+        sens_values = []
+        spec_values = []
+
+        for _ in range(n_bootstrap):
+            indices = rng.integers(0, n, size=n)
+            yt = y_true[indices]
+            yp = y_pred[indices]
+
+            tp = np.sum((yt == class_idx) & (yp == class_idx))
+            fn = np.sum((yt == class_idx) & (yp != class_idx))
+            fp = np.sum((yt != class_idx) & (yp == class_idx))
+            tn = np.sum((yt != class_idx) & (yp != class_idx))
+
+            sens = tp / (tp + fn) if (tp + fn) else np.nan
+            spec = tn / (tn + fp) if (tn + fp) else np.nan
+
+            if np.isfinite(sens):
+                sens_values.append(sens)
+            if np.isfinite(spec):
+                spec_values.append(spec)
+
+        sens = np.mean((y_true == class_idx) == (y_pred == class_idx))
+
+        sens_point = (
+            np.sum((y_true == class_idx) & (y_pred == class_idx))
+            / np.sum(y_true == class_idx)
+        )
+        spec_point = (
+            np.sum((y_true != class_idx) & (y_pred != class_idx))
+            / np.sum(y_true != class_idx)
+        )
+
+        records.append(
+            {
+                "class": cls,
+                "sensitivity": sens_point,
+                "sensitivity_ci_low": np.percentile(sens_values, 2.5),
+                "sensitivity_ci_high": np.percentile(sens_values, 97.5),
+                "specificity": spec_point,
+                "specificity_ci_low": np.percentile(spec_values, 2.5),
+                "specificity_ci_high": np.percentile(spec_values, 97.5),
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+def save_evaluation(y_true, y_prob, model_key):
+    y_pred = np.argmax(y_prob, axis=1)
+
+    # Classification report
+    report = classification_report(
+        y_true,
+        y_pred,
+        labels=np.arange(NUM_CLASSES),
+        target_names=CLASSES,
+        output_dict=True,
+        zero_division=0,
+    )
+    pd.DataFrame(report).T.to_csv(
+        RESULTS_DIR / f"{model_key}_classification_report.csv"
+    )
+
+    # Confusion matrices
+    save_confusion_matrices(y_true, y_pred, model_key)
+
+    # Overall bootstrap CIs
+    ci = bootstrap_confidence_intervals(
+        y_true,
+        y_prob,
+        n_bootstrap=BOOTSTRAP_N,
+        seed=SEED,
+    )
+
+    rows = []
+    for metric, values in ci.items():
+        rows.append(
+            {
+                "model": model_key,
+                "metric": metric,
+                "estimate": values["estimate"],
+                "95_CI_low": values["ci_low"],
+                "95_CI_high": values["ci_high"],
+            }
+        )
+
+    overall_df = pd.DataFrame(rows)
+    overall_df.to_csv(
+        RESULTS_DIR / f"{model_key}_metrics_95CI.csv",
+        index=False,
+    )
+
+    # Per-class sensitivity/specificity CIs
+    class_df = per_class_ci(
+        y_true,
+        y_prob,
+        n_bootstrap=BOOTSTRAP_N,
+        seed=SEED,
+    )
+    class_df.insert(0, "model", model_key)
+    class_df.to_csv(
+        RESULTS_DIR / f"{model_key}_per_class_95CI.csv",
+        index=False,
+    )
+
+    print(f"\n{model_key} evaluation")
+    for row in rows:
+        print(
+            f"{row['metric']:20s}: "
+            f"{row['estimate']:.4f} "
+            f"(95% CI {row['95_CI_low']:.4f}–{row['95_CI_high']:.4f})"
+        )
+
+    print("\nPer-class sensitivity/specificity:")
+    print(class_df.to_string(index=False))
+
+    return overall_df, class_df
