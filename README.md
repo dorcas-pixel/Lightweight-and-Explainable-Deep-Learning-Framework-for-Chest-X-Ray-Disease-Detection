@@ -1,4 +1,6 @@
 # Lightweight-and-Explainable-Deep-Learning-Framework-for-Chest-X-Ray-Disease-Detection
 This repository contains the implementation of an attention-enhanced, lightweight, and explainable deep learning framework for automated chest X-ray disease detection. The proposed framework is designed to achieve reliable diagnostic performance while reducing computational complexity and improving the interpretability of model predictions.
 The dataset is divided into three: Training, Validation, and Testing
-The datasets for this study can be found at https://www.kaggle.com/datasets/rifatulmajumder23/combined-unknown-pneumonia-and-tuberculosis. We also used another chest X-ray dataset to generalise the performance of the model. This dataset can be found at https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database/data.
+
+The datasets for this study can be found a
+t https://www.kaggle.com/datasets/rifatulmajumder23/combined-unknown-pneumonia-and-tuberculosis. We also used another chest X-ray dataset to generalise the performance of the model. This dataset can be found at https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database/data.
