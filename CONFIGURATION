@@ -1,0 +1,32 @@
+SOURCE_DIR = Path("DATASET_ROOT")       # <-- CHANGE THIS
+OUTPUT_DIR = Path("CXR_SPLIT")
+RESULTS_DIR = Path("CXR_RESULTS")
+
+CLASSES = ["Normal", "Pneumonia", "Tuberculosis"]
+NUM_CLASSES = len(CLASSES)
+
+TARGET_COUNTS = {
+    "Normal":       {"train": 4667, "val": 274, "test": 584},
+    "Pneumonia":    {"train": 3633, "val": 213, "test": 427},
+    "Tuberculosis": {"train": 3573, "val": 207, "test": 417},
+}
+
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+EPOCHS = 50
+SSL_EPOCHS = 10
+LEARNING_RATE = 1e-4
+SEED = 42
+BOOTSTRAP_N = 2000
+RUN_ABLATIONS = True
+
+# For quick testing, set EPOCHS lower. For the manuscript experiment,
+# use 50 epochs as specified above.
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+
+AUTOTUNE = tf.data.AUTOTUNE
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
