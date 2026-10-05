@@ -1,0 +1,44 @@
+def build_datasets():
+    def load(split, shuffle):
+        return tf.keras.utils.image_dataset_from_directory(
+            OUTPUT_DIR / split,
+            labels="inferred",
+            label_mode="categorical",
+            class_names=CLASSES,
+            image_size=IMG_SIZE,
+            batch_size=BATCH_SIZE,
+            shuffle=shuffle,
+            seed=SEED,
+        )
+
+    train_raw = load("train", True)
+    val_raw = load("val", False)
+    test_raw = load("test", False)
+
+    normalization = layers.Rescaling(1.0 / 255.0)
+
+    augmentation = keras.Sequential(
+        [
+            layers.RandomRotation(0.08),
+            layers.RandomFlip("horizontal"),
+            layers.RandomZoom(0.10),
+            layers.RandomTranslation(0.10, 0.10),
+        ],
+        name="training_augmentation",
+    )
+
+    def train_preprocess(x, y):
+        return augmentation(normalization(x), training=True), y
+
+    def eval_preprocess(x, y):
+        return normalization(x), y
+
+    train_ds = train_raw.map(train_preprocess, num_parallel_calls=AUTOTUNE)
+    val_ds = val_raw.map(eval_preprocess, num_parallel_calls=AUTOTUNE)
+    test_ds = test_raw.map(eval_preprocess, num_parallel_calls=AUTOTUNE)
+
+    return (
+        train_ds.prefetch(AUTOTUNE),
+        val_ds.prefetch(AUTOTUNE),
+        test_ds.prefetch(AUTOTUNE),
+    )
