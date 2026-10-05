@@ -1,0 +1,30 @@
+if __name__ == "__main__":
+    print("=" * 90)
+    print("CHEST X-RAY DEEP LEARNING EXPERIMENT")
+    print("=" * 90)
+
+    # 1. Exact manuscript-compatible train/validation/test split
+    make_exact_split()
+
+    # 2. Load datasets
+    train_ds, val_ds, test_ds = build_datasets()
+
+    # 3. Full ablation experiment
+    if RUN_ABLATIONS:
+        run_ablation_study(
+            train_ds,
+            val_ds,
+            test_ds,
+        )
+
+    print("\nAll results have been saved in:")
+    print(RESULTS_DIR.resolve())
+
+    print("\nExpected important files:")
+    print("  ablation_comparison_95CI_wide.csv")
+    print("  manuscript_ablation_table.csv")
+    print("  *_confusion_matrix_counts.png")
+    print("  *_confusion_matrix_normalized.png")
+    print("  *_metrics_95CI.csv")
+    print("  *_per_class_95CI.csv")
+    print("  ablation_comparison_metrics.png")
