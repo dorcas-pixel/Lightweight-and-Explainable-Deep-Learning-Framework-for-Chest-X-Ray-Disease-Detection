@@ -1,0 +1,56 @@
+def save_confusion_matrices(y_true, y_pred, model_key):
+    cm = confusion_matrix(y_true, y_pred, labels=np.arange(NUM_CLASSES))
+
+    # Raw counts
+    plt.figure(figsize=(7, 6))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=CLASSES,
+        yticklabels=CLASSES,
+        cbar=False,
+    )
+    plt.xlabel("Predicted class")
+    plt.ylabel("True class")
+    plt.title(f"{model_key}: Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(
+        RESULTS_DIR / f"{model_key}_confusion_matrix_counts.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close()
+
+    # Row-normalized percentages
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_norm = np.divide(
+        cm,
+        row_sums,
+        out=np.zeros_like(cm, dtype=float),
+        where=row_sums != 0,
+    )
+
+    plt.figure(figsize=(7, 6))
+    sns.heatmap(
+        cm_norm * 100,
+        annot=True,
+        fmt=".1f",
+        cmap="Blues",
+        xticklabels=CLASSES,
+        yticklabels=CLASSES,
+        cbar=False,
+    )
+    plt.xlabel("Predicted class")
+    plt.ylabel("True class")
+    plt.title(f"{model_key}: Normalized Confusion Matrix (%)")
+    plt.tight_layout()
+    plt.savefig(
+        RESULTS_DIR / f"{model_key}_confusion_matrix_normalized.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close()
+
+    return cm
