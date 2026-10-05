@@ -1,0 +1,13 @@
+def collect_predictions(model, test_ds):
+    y_true = []
+    y_prob = []
+
+    for images, labels in test_ds:
+        probs = model.predict(images, verbose=0)
+        y_prob.append(probs)
+        y_true.append(labels.numpy())
+
+    y_prob = np.concatenate(y_prob)
+    y_true_onehot = np.concatenate(y_true)
+
+    return np.argmax(y_true_onehot, axis=1), y_prob
