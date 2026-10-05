@@ -1,0 +1,64 @@
+def list_images(folder):
+    return sorted(
+        p for p in folder.rglob("*")
+        if p.is_file() and p.suffix.lower() in VALID_EXTENSIONS
+    )
+
+
+def make_exact_split():
+    if not SOURCE_DIR.exists():
+        raise FileNotFoundError(
+            f"Dataset folder not found: {SOURCE_DIR}\n"
+            "Set SOURCE_DIR to the directory containing the class folders."
+        )
+
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+
+    for split in ["train", "val", "test"]:
+        for cls in CLASSES:
+            (OUTPUT_DIR / split / cls).mkdir(parents=True, exist_ok=True)
+
+    summary = {}
+
+    for cls in CLASSES:
+        source_class = SOURCE_DIR / cls
+        images = list_images(source_class)
+
+        required = sum(TARGET_COUNTS[cls].values())
+        if len(images) != required:
+            raise ValueError(
+                f"{cls}: found {len(images)} images, but manuscript requires "
+                f"{required} images."
+            )
+
+        rng = random.Random(SEED)
+        rng.shuffle(images)
+
+        n_train = TARGET_COUNTS[cls]["train"]
+        n_val = TARGET_COUNTS[cls]["val"]
+
+        split_files = {
+            "train": images[:n_train],
+            "val": images[n_train:n_train + n_val],
+            "test": images[n_train + n_val:],
+        }
+
+        for split, files in split_files.items():
+            for i, src in enumerate(files):
+                dst = OUTPUT_DIR / split / cls / src.name
+                if dst.exists():
+                    dst = OUTPUT_DIR / split / cls / f"{i}_{src.name}"
+                shutil.copy2(src, dst)
+
+        summary[cls] = {s: len(v) for s, v in split_files.items()}
+
+    split_df = pd.DataFrame(summary).T
+    split_df.to_csv(RESULTS_DIR / "dataset_split_summary.csv")
+
+    print("\nDATASET SPLIT")
+    print(split_df)
+    print("\nTotals:")
+    print(split_df.sum())
+
+    return summary
